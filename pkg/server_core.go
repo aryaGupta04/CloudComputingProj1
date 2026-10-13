@@ -92,6 +92,24 @@ func (s Server) Connect(_ context.Context, r *Registration) (*AuthToken, error) 
 // (when you initially receive it, it will have the name of the recipient instead).
 // TODO: Implement `Send`. If any errors occur, return any error message you'd like.
 func (s Server) Send(ctx context.Context, msg *ChatMessage) (*Success, error) {
+	sender, ok := ctx.Value("username").(string)
+	if !ok {
+		return nil, errors.New("Could not find sender username")
+	}
+
+	recipiant, exists := s.Inboxes[msg.User]
+	if !exists {
+		return nil, errors.New("Recipiant doesn't exist in server")
+	}
+
+	out := &ChatMessage{User: sender, Body: msg.Body}
+
+	select{
+		case recipiant <- out:
+			return &Success{Ok: true}, nil
+		default:
+			return nil, errors.New("Recipiant inbox full")
+	}
 }
 
 // Implementation of the Fetch method defined in our `.proto` file.
@@ -102,6 +120,27 @@ func (s Server) Send(ctx context.Context, msg *ChatMessage) (*Success, error) {
 //
 // TODO: Implement Fetch. If any errors occur, return any error message you'd like.
 func (s Server) Fetch(ctx context.Context, _ *Empty) (*ChatMessages, error) {
+	recipient, ok := ctx.Value("username").(string)
+	if !ok {
+		return nil, errors.New("Can't find recipient username")
+	}
+	
+	inbox, exists := s.Inboxes[recipient]
+	if !exists {
+		return nil, errors.New("Can't find inbox for recipient")
+	}
+	
+	var messages []*ChatMessage
+	for i := 0; i < BATCH_SIZE; i++ {
+		select {
+			case msg := <-inbox:
+				messages = append(messages, msg)
+			default:
+				return &ChatMessages{Messages: messages}, nil
+			
+		}
+	}
+	return &ChatMessages{Messages: messages}, nil
 }
 
 // Implementation of the List method defined in our `.proto` file.
